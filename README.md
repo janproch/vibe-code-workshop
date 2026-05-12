@@ -14,35 +14,70 @@ A workshop project that lets you draw a rectangle on an OpenStreetMap view and d
 
 | Layer | Technology |
 |-------|-----------|
-| Map UI | [Leaflet.js](https://leafletjs.com) + [leaflet-draw](https://github.com/Leaflet/Leaflet.draw) |
+| Frontend | [React 18](https://react.dev) + [Vite](https://vitejs.dev) |
+| Map UI | [Leaflet.js](https://leafletjs.com) (custom rectangle draw — no plugin needed) |
 | Map tiles | [OpenStreetMap](https://www.openstreetmap.org) (no API key needed) |
+| Backend | [Node.js](https://nodejs.org) + [Express](https://expressjs.com) |
 | Elevation data | [OpenTopoData SRTM 30 m](https://www.opentopodata.org/datasets/srtm30m/) (no API key needed) |
+| PNG generation | [pngjs](https://github.com/pngjs/pngjs) |
 
 No API keys or accounts are required.
 
 ## Setup
 
-> _Commands will be filled in once the project is scaffolded. Run `/Scaffold Project` in Copilot chat to generate the starter code for your preferred stack._
+### Prerequisites
+- [Node.js](https://nodejs.org) 18 or later
+
+### 1 — Install dependencies
 
 ```bash
-# Example — replace with actual commands after scaffolding
-npm install        # install dependencies
-npm run dev        # start the development server
+cd backend && npm install
+cd ../frontend && npm install
 ```
 
-Then open `http://localhost:3000` (or the port shown in the terminal) in your browser.
+### 2 — Start the backend
+
+```bash
+cd backend
+npm run dev   # starts on http://localhost:3001
+```
+
+### 3 — Start the frontend (new terminal)
+
+```bash
+cd frontend
+npm run dev   # starts on http://localhost:5173
+```
+
+Open **http://localhost:5173** in your browser, draw a rectangle on the map, and the height map appears in the right panel.
+
+> **Note on grid resolution:** The default resolution is 32 × 32 (≈ 11 API requests, ~12 s).
+> Raising it to 128 × 128 takes ~3 minutes due to OpenTopoData's 1 req/s rate limit on the free tier.
 
 ## Project structure
 
 ```
 /
-├── frontend/      # Map UI — Leaflet rectangle selection, height map display
-├── backend/       # API — receives bounding box, queries elevation, returns PNG
+├── backend/
+│   ├── package.json
+│   └── src/
+│       ├── server.js      # Express server, POST /elevation endpoint
+│       └── elevation.js   # OpenTopoData fetching, grid sampling, PNG generation
+├── frontend/
+│   ├── index.html
+│   ├── vite.config.js     # dev proxy: /api → localhost:3001
+│   ├── package.json
+│   └── src/
+│       ├── main.jsx
+│       ├── App.jsx
+│       ├── App.css
+│       └── components/
+│           ├── MapView.jsx        # Leaflet map with custom rectangle draw
+│           └── HeightMapPanel.jsx # Displays and downloads the PNG result
+├── .gitignore
 ├── AGENTS.md      # AI agent instructions and project conventions
 └── README.md      # This file
 ```
-
-> Structure is created during scaffolding and may differ depending on the chosen stack.
 
 ## API reference
 
