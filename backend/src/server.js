@@ -30,8 +30,8 @@ app.post('/elevation', async (req, res) => {
     res.set('Content-Type', 'image/png')
     res.send(png)
   } catch (err) {
-    console.error(err)
-    res.status(502).json({ error: 'Failed to fetch elevation data' })
+    console.error('Elevation error:', err.message)
+    res.status(502).json({ error: 'Failed to fetch elevation data', detail: err.message })
   }
 })
 

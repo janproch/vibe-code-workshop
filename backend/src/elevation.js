@@ -1,7 +1,11 @@
 import { PNG } from 'pngjs'
 
 const OPENTOPODATA_URL = 'https://api.opentopodata.org/v1/srtm30m'
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
+const OVERPASS_URL = 'https://overpass.kumi.systems/api/interpreter'
+const OVERPASS_HEADERS = {
+  'Accept': 'application/json',
+  'User-Agent': 'height-map-extractor/1.0 (workshop demo project)',
+}
 const BATCH_SIZE = 100     // OpenTopoData max locations per request
 const RATE_LIMIT_MS = 1100 // public API allows ~1 req/s
 
@@ -71,12 +75,9 @@ async function fetchWaterPolygons(bounds) {
     `);` +
     `out body;>;out skel qt;`
 
-  const res = await fetch(OVERPASS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `data=${encodeURIComponent(query)}`,
-  })
-  if (!res.ok) throw new Error(`Overpass API HTTP ${res.status}`)
+  const url = `${OVERPASS_URL}?data=${encodeURIComponent(query)}`
+  const res = await fetch(url, { headers: OVERPASS_HEADERS })
+  if (!res.ok) throw new Error(`Overpass API HTTP ${res.status}: ${await res.text().then(t => t.slice(0, 200))}`)
   const data = await res.json()
 
   // Build node lookup table
