@@ -113,3 +113,42 @@ body, #root {
 .panel .download-btn:hover {
   background: #34495e;
 }
+
+/* ── Legend ──────────────────────────────────────────── */
+
+.legend {
+  align-self: flex-start;
+  width: 100%;
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid #ddd;
+}
+
+.legend h3 {
+  font-size: 0.85rem;
+  color: #555;
+  margin-bottom: 0.5rem;
+}
+
+.legend ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #444;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 14px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
