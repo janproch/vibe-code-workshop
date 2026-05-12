@@ -64,34 +64,27 @@ async function fetchElevations(points) {
 async function fetchWaterPolygons(bounds) {
   const { north, south, east, west } = bounds
   const bbox = `${south},${west},${north},${east}`
-  // Query for closed water areas: lakes, reservoirs, ponds, basins, wetlands
+  // "out geom" returns node coordinates inline — much cheaper than out body;>;out skel qt;
   const query =
-    `[out:json][timeout:30];` +
+    `[out:json][timeout:20];` +
     `(` +
     `way["natural"="water"](${bbox});` +
     `way["landuse"="reservoir"](${bbox});` +
     `way["landuse"="basin"](${bbox});` +
     `way["natural"="wetland"](${bbox});` +
     `);` +
-    `out body;>;out skel qt;`
+    `out geom;`
 
   const url = `${OVERPASS_URL}?data=${encodeURIComponent(query)}`
   const res = await fetch(url, { headers: OVERPASS_HEADERS })
   if (!res.ok) throw new Error(`Overpass API HTTP ${res.status}: ${await res.text().then(t => t.slice(0, 200))}`)
   const data = await res.json()
 
-  // Build node lookup table
-  const nodeMap = {}
-  for (const el of data.elements) {
-    if (el.type === 'node') nodeMap[el.id] = { lat: el.lat, lng: el.lon }
-  }
-
-  // Reconstruct polygons from ways
+  // With "out geom" each way already carries its geometry array
   const polygons = []
   for (const el of data.elements) {
-    if (el.type === 'way' && el.nodes) {
-      const polygon = el.nodes.map(id => nodeMap[id]).filter(Boolean)
-      if (polygon.length >= 3) polygons.push(polygon)
+    if (el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 3) {
+      polygons.push(el.geometry.map(n => ({ lat: n.lat, lng: n.lon })))
     }
   }
   return polygons
@@ -167,10 +160,14 @@ function elevationToColor(norm) {
 export async function generateHeightMap(bounds, resolution) {
   const points = buildGrid(bounds, resolution)
 
-  // Fetch elevation data and water polygons in parallel
+  // Fetch elevation data and water polygons in parallel.
+  // Water fetch is best-effort — a timeout returns an empty list rather than failing the whole request.
   const [elevations, waterPolygons] = await Promise.all([
     fetchElevations(points),
-    fetchWaterPolygons(bounds),
+    fetchWaterPolygons(bounds).catch(err => {
+      console.warn('Water fetch failed (elevation map will have no water overlay):', err.message)
+      return []
+    }),
   ])
 
   // Compute min/max only over land cells for proper colour scaling
