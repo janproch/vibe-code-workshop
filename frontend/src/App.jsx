@@ -7,8 +7,10 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [resolution, setResolution] = useState(32)
+  const [selectMode, setSelectMode] = useState(false)
 
   const handleBoundsSelected = useCallback(async (bounds) => {
+    setSelectMode(false)
     setLoading(true)
     setError(null)
     setHeightMapUrl(null)
@@ -49,9 +51,19 @@ export default function App() {
           />
           <span>× {resolution}</span>
         </label>
+        <button
+          className={`select-btn${selectMode ? ' select-btn--active' : ''}`}
+          onClick={() => setSelectMode(m => !m)}
+        >
+          {selectMode ? '✕ Cancel' : '⬚ Select area'}
+        </button>
       </header>
       <div className="app-body">
-        <MapView onBoundsSelected={handleBoundsSelected} />
+        <MapView
+          onBoundsSelected={handleBoundsSelected}
+          selectMode={selectMode}
+          onSelectDone={() => setSelectMode(false)}
+        />
         <HeightMapPanel url={heightMapUrl} loading={loading} error={error} />
       </div>
     </div>
