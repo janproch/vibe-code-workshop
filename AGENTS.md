@@ -37,6 +37,16 @@ Keep frontend and backend concerns separate. If the project grows, put them in `
 - All coordinates and elevation values should be validated at the API boundary (reject out-of-range lat/lon).
 - Prefer metric units (metres) internally; convert for display only.
 
+## README
+
+Keep [README.md](README.md) up to date whenever you:
+- Add, rename, or remove a build/run command → update the **Setup** section.
+- Add a new endpoint or change the request/response shape → update **API reference**.
+- Change the folder structure → update **Project structure**.
+- Add a significant dependency or change a key service → update **Tech stack**.
+
+Do not duplicate content between README.md and AGENTS.md — README is user-facing, AGENTS.md is agent-facing.
+
 ## Workshop Notes
 
 - This is a **learning/demo** project — favour clarity and simplicity over production-grade complexity.
