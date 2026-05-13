@@ -8,25 +8,6 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises'
 
 const DEFAULT_OPENTOPODATA_URL = 'http://localhost:5000/v1/eudem25m'
 const OPENTOPODATA_URL = process.env.OPENTOPODATA_URL || DEFAULT_OPENTOPODATA_URL
-const BATCH_SIZE = 100 // OpenTopoData max locations per request
-
-const isLocalOpenTopoData = (() => {
-  try {
-    const url = new URL(OPENTOPODATA_URL)
-    return url.hostname === 'localhost' || url.hostname === '127.0.0.1'
-  } catch {
-    return false
-  }
-})()
-
-const RATE_LIMIT_MS = Number.parseInt(
-  process.env.OPENTOPODATA_RATE_LIMIT_MS ?? (isLocalOpenTopoData ? '0' : '1100'),
-  10,
-)
-const REQUEST_CONCURRENCY = Math.max(
-  1,
-  Number.parseInt(process.env.OPENTOPODATA_CONCURRENCY ?? (isLocalOpenTopoData ? '6' : '1'), 10),
-)
 const REQUEST_TIMEOUT_MS = Math.max(
   1000,
   Number.parseInt(process.env.OPENTOPODATA_REQUEST_TIMEOUT_MS ?? '30000', 10),
@@ -66,12 +47,6 @@ function buildGrid(bounds, resolution) {
   return points
 }
 
-function chunk(arr, size) {
-  const out = []
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
-  return out
-}
-
 // ── Elevation (OpenTopoData) ──────────────────────────────────────────────────
 
 function timeoutSignal(ms) {
@@ -80,29 +55,67 @@ function timeoutSignal(ms) {
   return { signal: controller.signal, clear: () => clearTimeout(timeout) }
 }
 
-async function fetchBatch(points, batchNo, totalBatches) {
-  const locations = points.map(p => `${p.lat},${p.lng}`).join('|')
-  const url = `${OPENTOPODATA_URL}?locations=${locations}`
+function flattenElevationGrid(grid, width, height) {
+  if (!Array.isArray(grid) || grid.length !== height) {
+    throw new Error(`OpenTopoData grid height mismatch: expected ${height}, got ${Array.isArray(grid) ? grid.length : 'non-array'}`)
+  }
+
+  const elevations = []
+  for (let row = 0; row < height; row++) {
+    if (!Array.isArray(grid[row]) || grid[row].length !== width) {
+      throw new Error(`OpenTopoData grid width mismatch at row ${row}: expected ${width}, got ${Array.isArray(grid[row]) ? grid[row].length : 'non-array'}`)
+    }
+    elevations.push(...grid[row])
+  }
+
+  return elevations
+}
+
+async function fetchElevationGrid(bounds, resolution) {
+  const url = `${OPENTOPODATA_URL.replace(/\/$/, '')}/grid`
+  const body = {
+    north: bounds.north,
+    south: bounds.south,
+    east: bounds.east,
+    west: bounds.west,
+    width: resolution,
+    height: resolution,
+  }
   let lastError
+  const startedAt = Date.now()
+
+  console.log(
+    `[elev] Starting optimized grid fetch: ${resolution}x${resolution} (${resolution * resolution} samples), url=${url}, timeout=${REQUEST_TIMEOUT_MS}ms, retries=${REQUEST_RETRIES}`,
+  )
 
   for (let attempt = 0; attempt <= REQUEST_RETRIES; attempt++) {
     const attemptNo = attempt + 1
     const { signal, clear } = timeoutSignal(REQUEST_TIMEOUT_MS)
 
     try {
-      const res = await fetch(url, { signal })
-      if (!res.ok) throw new Error(`OpenTopoData HTTP ${res.status}`)
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal,
+      })
       const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(`OpenTopoData HTTP ${res.status}: ${data?.error || data?.detail || res.statusText}`)
+      }
       if (data.status !== 'OK') throw new Error(`OpenTopoData status: ${data.status}`)
-      // elevation can be null for ocean cells where SRTM has no coverage
-      return data.results.map(r => r.elevation)
+
+      const elevations = flattenElevationGrid(data.grid, resolution, resolution)
+      console.log(`[elev] Optimized grid fetch complete: samples=${elevations.length}, elapsed=${Date.now() - startedAt}ms`)
+      return elevations
     } catch (err) {
       lastError = err
       const reason = err?.name === 'AbortError'
         ? `timeout after ${REQUEST_TIMEOUT_MS}ms`
         : (err?.message || String(err))
       console.warn(
-        `[elev] Batch ${batchNo}/${totalBatches} attempt ${attemptNo}/${REQUEST_RETRIES + 1} failed: ${reason}`,
+        `[elev] Optimized grid fetch attempt ${attemptNo}/${REQUEST_RETRIES + 1} failed: ${reason}`,
       )
 
       if (attempt < REQUEST_RETRIES) {
@@ -115,47 +128,8 @@ async function fetchBatch(points, batchNo, totalBatches) {
   }
 
   throw new Error(
-    `[elev] Batch ${batchNo}/${totalBatches} failed after ${REQUEST_RETRIES + 1} attempt(s): ${lastError?.message || lastError}`,
+    `[elev] Optimized grid fetch failed after ${REQUEST_RETRIES + 1} attempt(s): ${lastError?.message || lastError}`,
   )
-}
-
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
-
-async function fetchElevations(points) {
-  const batches = chunk(points, BATCH_SIZE)
-  const elevations = []
-  const totalGroups = Math.ceil(batches.length / REQUEST_CONCURRENCY)
-  const startedAt = Date.now()
-
-  console.log(
-    `[elev] Starting elevation fetch: points=${points.length}, batches=${batches.length}, concurrency=${REQUEST_CONCURRENCY}, groups=${totalGroups}, timeout=${REQUEST_TIMEOUT_MS}ms, retries=${REQUEST_RETRIES}`,
-  )
-
-  for (let i = 0; i < batches.length; i += REQUEST_CONCURRENCY) {
-    if (i > 0 && RATE_LIMIT_MS > 0) await sleep(RATE_LIMIT_MS)
-
-    const group = batches.slice(i, i + REQUEST_CONCURRENCY)
-    const groupNo = Math.floor(i / REQUEST_CONCURRENCY) + 1
-    const results = await Promise.all(
-      group.map((batchPoints, offset) => fetchBatch(batchPoints, i + offset + 1, batches.length)),
-    )
-    for (const values of results) elevations.push(...values)
-
-    const shouldLogProgress =
-      groupNo === 1 ||
-      groupNo === totalGroups ||
-      groupNo % Math.max(1, Math.floor(totalGroups / 10)) === 0
-
-    if (shouldLogProgress) {
-      const pct = Math.floor((groupNo / totalGroups) * 100)
-      console.log(
-        `[elev] Progress ${pct}% (${groupNo}/${totalGroups} groups, ${elevations.length}/${points.length} samples) elapsed=${Date.now() - startedAt}ms`,
-      )
-    }
-  }
-
-  console.log(`[elev] Elevation fetch complete in ${Date.now() - startedAt}ms`)
-  return elevations
 }
 
 // ── Water polygons (local osmium + prefiltered OSM water files) ───────────────
@@ -163,6 +137,26 @@ async function fetchElevations(points) {
 function coordsToRing(coords) {
   if (!Array.isArray(coords) || coords.length < 3) return null
   return coords.map(([lng, lat]) => ({ lat, lng }))
+}
+
+function ringBounds(ring) {
+  let north = -Infinity
+  let south = Infinity
+  let east = -Infinity
+  let west = Infinity
+
+  for (const point of ring) {
+    if (point.lat > north) north = point.lat
+    if (point.lat < south) south = point.lat
+    if (point.lng > east) east = point.lng
+    if (point.lng < west) west = point.lng
+  }
+
+  return { north, south, east, west }
+}
+
+function pointInBounds({ lat, lng }, bounds) {
+  return lat >= bounds.south && lat <= bounds.north && lng >= bounds.west && lng <= bounds.east
 }
 
 function parseJsonSeqWaterAreas(jsonseq) {
@@ -188,7 +182,7 @@ function parseJsonSeqWaterAreas(jsonseq) {
       const outer = coordsToRing(outerRaw)
       if (!outer) continue
       const holes = holeRaws.map(coordsToRing).filter(Boolean)
-      areas.push({ outer, holes })
+      areas.push({ outer, holes, bounds: ringBounds(outer) })
       continue
     }
 
@@ -199,7 +193,7 @@ function parseJsonSeqWaterAreas(jsonseq) {
         const outer = coordsToRing(outerRaw)
         if (!outer) continue
         const holes = holeRaws.map(coordsToRing).filter(Boolean)
-        areas.push({ outer, holes })
+        areas.push({ outer, holes, bounds: ringBounds(outer) })
       }
     }
   }
@@ -300,6 +294,7 @@ function isWater(point, elev, waterAreas) {
   if (elev === null || elev < 0) return true
   // Check inland water bodies from prefiltered local OSM data
   return waterAreas.some(area => (
+    pointInBounds(point, area.bounds) &&
     pointInPolygon(point, area.outer) && !area.holes.some(hole => pointInPolygon(point, hole))
   ))
 }
@@ -338,6 +333,22 @@ function elevationToColor(norm) {
   return COLOR_STOPS.at(-1)[1]
 }
 
+function landElevationStats(elevations) {
+  let samples = 0
+  let min = Infinity
+  let max = -Infinity
+
+  for (const elev of elevations) {
+    if (elev === null || elev < 0) continue
+    samples++
+    if (elev < min) min = elev
+    if (elev > max) max = elev
+  }
+
+  if (samples === 0) return { samples, min: 0, max: 1 }
+  return { samples, min, max }
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
@@ -358,7 +369,7 @@ export async function generateHeightMap(bounds, resolution) {
   // Fetch elevation data and local water polygons in parallel.
   // Water load is best-effort: if osmium/files are unavailable, we still render elevation.
   const [elevations, waterAreas] = await Promise.all([
-    fetchElevations(points),
+    fetchElevationGrid(bounds, resolution),
     fetchWaterPolygons(bounds).catch(err => {
       console.warn('Local water load failed (elevation map will have no inland water overlay):', err.message)
       return []
@@ -370,11 +381,9 @@ export async function generateHeightMap(bounds, resolution) {
 
   // Compute min/max only over land cells for proper colour scaling
   const statsStart = Date.now()
-  const landElevs = elevations.filter(e => e !== null && e >= 0)
-  const min = landElevs.length ? Math.min(...landElevs) : 0
-  const max = landElevs.length ? Math.max(...landElevs) : 1
+  const { samples: landSamples, min, max } = landElevationStats(elevations)
   const range = max - min || 1
-  console.log(`[heightmap] Land elevation stats: samples=${landElevs.length}, min=${min}, max=${max} (${Date.now() - statsStart}ms)`)
+  console.log(`[heightmap] Land elevation stats: samples=${landSamples}, min=${min}, max=${max} (${Date.now() - statsStart}ms)`)
 
   const png = new PNG({ width: resolution, height: resolution })
   png.data = Buffer.alloc(resolution * resolution * 4)
