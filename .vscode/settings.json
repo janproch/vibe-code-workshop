@@ -1,0 +1,7 @@
+{
+  "chat.tools.terminal.enableAutoApprove": true,
+  "chat.tools.terminal.autoApprove": {
+    "curl": true,
+    "ls": true
+  }
+}
