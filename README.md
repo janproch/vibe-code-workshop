@@ -1,6 +1,6 @@
 # Height Map Extractor
 
-A workshop project that lets you draw a rectangle on an OpenStreetMap view and download an elevation/height map for that area — entirely with free, no-key-required services.
+A workshop project that lets you draw a rectangle on an OpenStreetMap view and download an elevation/height map PNG for that area — entirely with free, no-key-required services.
 
 ## How it works
 
@@ -8,7 +8,7 @@ A workshop project that lets you draw a rectangle on an OpenStreetMap view and d
 2. Draw a rectangle on the map to select any geographic area.
 3. The app fetches elevation samples from [OpenTopoData](https://api.opentopodata.org) (SRTM 30 m).
 4. A grayscale height map is generated (pixel brightness = relative elevation) and displayed.
-5. Optionally export the result as a PNG or GeoTIFF.
+5. Export the result as a PNG.
 
 ## Tech stack
 
@@ -98,9 +98,9 @@ Request body:
 | Field | Type | Description |
 |-------|------|-------------|
 | `north`, `south`, `east`, `west` | `number` | Bounding box in decimal degrees (WGS-84) |
-| `resolution` | `number` | Grid size (default **128**, meaning 128 × 128 samples) |
+| `resolution` | `number` | Grid side length (default **32**). The backend clamps values to **2–128**. |
 
-Response: a PNG image where pixel brightness encodes elevation (0 = lowest point, 255 = highest point in the selected area).
+Response: `image/png` where pixel brightness encodes elevation (0 = lowest point, 255 = highest point in the selected area).
 
 ## Elevation data limits
 
