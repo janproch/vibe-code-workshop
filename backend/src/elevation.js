@@ -6,9 +6,27 @@ import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 
-const OPENTOPODATA_URL = 'https://api.opentopodata.org/v1/srtm30m'
-const BATCH_SIZE = 100     // OpenTopoData max locations per request
-const RATE_LIMIT_MS = 1100 // public API allows ~1 req/s
+const DEFAULT_OPENTOPODATA_URL = 'http://localhost:5000/v1/eudem25m'
+const OPENTOPODATA_URL = process.env.OPENTOPODATA_URL || DEFAULT_OPENTOPODATA_URL
+const BATCH_SIZE = 100 // OpenTopoData max locations per request
+
+const isLocalOpenTopoData = (() => {
+  try {
+    const url = new URL(OPENTOPODATA_URL)
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+  } catch {
+    return false
+  }
+})()
+
+const RATE_LIMIT_MS = Number.parseInt(
+  process.env.OPENTOPODATA_RATE_LIMIT_MS ?? (isLocalOpenTopoData ? '0' : '1100'),
+  10,
+)
+const REQUEST_CONCURRENCY = Math.max(
+  1,
+  Number.parseInt(process.env.OPENTOPODATA_CONCURRENCY ?? (isLocalOpenTopoData ? '6' : '1'), 10),
+)
 const execFileAsync = promisify(execFile)
 
 const __filename = fileURLToPath(import.meta.url)
@@ -63,11 +81,15 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 async function fetchElevations(points) {
   const batches = chunk(points, BATCH_SIZE)
   const elevations = []
-  for (let i = 0; i < batches.length; i++) {
-    if (i > 0) await sleep(RATE_LIMIT_MS)
-    const values = await fetchBatch(batches[i])
-    elevations.push(...values)
+
+  for (let i = 0; i < batches.length; i += REQUEST_CONCURRENCY) {
+    if (i > 0 && RATE_LIMIT_MS > 0) await sleep(RATE_LIMIT_MS)
+
+    const group = batches.slice(i, i + REQUEST_CONCURRENCY)
+    const results = await Promise.all(group.map(fetchBatch))
+    for (const values of results) elevations.push(...values)
   }
+
   return elevations
 }
 

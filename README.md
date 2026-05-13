@@ -6,7 +6,7 @@ A workshop project that lets you draw a rectangle on an OpenStreetMap view and d
 
 1. Open the app in your browser and set your desired grid resolution (8–512 points per side, default **512 × 512**).
 2. Click **Select area** and draw a rectangle on the map to define any geographic area.
-3. The app fetches elevation samples from [OpenTopoData](https://api.opentopodata.org) (SRTM 30 m) and detects water bodies from local OpenStreetMap water extracts in `data/water/`.
+3. The app fetches elevation samples from a local [OpenTopoData](https://www.opentopodata.org) instance (default: `http://localhost:5000/v1/eudem25m`) and detects water bodies from local OpenStreetMap water extracts in `data/water/`.
 4. A topographic PNG map is generated with color-coded elevation zones (green = lowlands, brown = uplands, white = peaks) and blue water overlays.
 5. View the result in the right panel and export it as a PNG.
 
@@ -18,7 +18,7 @@ A workshop project that lets you draw a rectangle on an OpenStreetMap view and d
 | Map UI | [Leaflet.js](https://leafletjs.com) (custom rectangle draw — no plugin needed) |
 | Map tiles | [OpenStreetMap](https://www.openstreetmap.org) (no API key needed) |
 | Backend | [Node.js](https://nodejs.org) + [Express](https://expressjs.com) |
-| Elevation data | [OpenTopoData SRTM 30 m](https://www.opentopodata.org/datasets/srtm30m/) (no API key needed) |
+| Elevation data | Local [OpenTopoData](https://www.opentopodata.org) endpoint (default dataset: `eudem25m`) |
 | Water detection | Local OpenStreetMap extracts + [osmium-tool](https://osmcode.org/osmium-tool/) |
 | PNG generation | [pngjs](https://github.com/pngjs/pngjs) |
 
@@ -42,6 +42,16 @@ cd ../frontend && npm install
 ```bash
 cd backend
 npm run dev   # starts on http://localhost:3001
+```
+
+The backend defaults to a local OpenTopoData endpoint:
+
+- `http://localhost:5000/v1/eudem25m`
+
+Override it with environment variables when needed:
+
+```bash
+OPENTOPODATA_URL="http://localhost:5000/v1/eudem25m" npm run dev
 ```
 
 ### 3 — Start the frontend (new terminal)
@@ -125,7 +135,17 @@ Color intensity and hue follow a topographic scale relative to the min/max eleva
 
 ## API and data limits
 
-**OpenTopoData (elevation):** Accepts up to 100 locations per request. For a 512 × 512 grid (~262k elevation points) the backend splits requests into ~2,621 batches. Due to the free tier's 1 req/s rate limit, this takes roughly 5–10 minutes.
+### Elevation provider configuration
+
+The backend supports these environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENTOPODATA_URL` | `http://localhost:5000/v1/eudem25m` | Full OpenTopoData endpoint including dataset path (`/v1/<dataset>`) |
+| `OPENTOPODATA_CONCURRENCY` | `6` on localhost, otherwise `1` | Number of elevation batch requests sent in parallel |
+| `OPENTOPODATA_RATE_LIMIT_MS` | `0` on localhost, otherwise `1100` | Delay between request groups (milliseconds) |
+
+**OpenTopoData (elevation):** Accepts up to 100 locations per request. For a 512 × 512 grid (~262k elevation points) the backend splits requests into ~2,621 batches. With a local instance, requests are parallelized for much faster processing. If you switch to a public endpoint, use conservative concurrency/rate-limit settings.
 
 **Local water detection (osmium):** The backend reads pre-filtered files in `data/water/`, clips each file by the requested bounding box with `osmium extract`, exports geometries via `osmium export -f jsonseq`, and paints those polygons as water. If local files are missing or osmium fails, the map still renders elevation (and oceans from null/negative elevation cells), but inland water overlays may be missing.
 
