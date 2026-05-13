@@ -4,7 +4,7 @@ A workshop project that lets you draw a rectangle on an OpenStreetMap view and d
 
 ## How it works
 
-1. Open the app in your browser and set your desired grid resolution (8–128 points per side).
+1. Open the app in your browser and set your desired grid resolution (8–512 points per side, default **512 × 512**).
 2. Click **Select area** and draw a rectangle on the map to define any geographic area.
 3. The app fetches elevation samples from [OpenTopoData](https://api.opentopodata.org) (SRTM 30 m) and detects water bodies from local OpenStreetMap water extracts in `data/water/`.
 4. A topographic PNG map is generated with color-coded elevation zones (green = lowlands, brown = uplands, white = peaks) and blue water overlays.
@@ -51,7 +51,7 @@ cd frontend
 npm run dev   # starts on http://localhost:5173
 ```
 
-Open **http://localhost:5173** in your browser, set a grid resolution (default **32 × 32**), click **Select area**, and draw a rectangle on the map. The topographic height map appears in the right panel with a legend showing elevation zones.
+Open **http://localhost:5173** in your browser, set a grid resolution (default **512 × 512**), click **Select area**, and draw a rectangle on the map. The topographic height map appears in the right panel with a legend showing elevation zones.
 
 Before rendering inland water overlays, generate local water extracts:
 
@@ -118,9 +118,11 @@ Color intensity and hue follow a topographic scale relative to the min/max eleva
 
 ## API and data limits
 
-**OpenTopoData (elevation):** Accepts up to 100 locations per request. For a 128 × 128 grid the backend splits the request into multiple batches automatically.
+**OpenTopoData (elevation):** Accepts up to 100 locations per request. For a 512 × 512 grid (~262k elevation points) the backend splits requests into ~2,621 batches. Due to the free tier's 1 req/s rate limit, this takes roughly 5–10 minutes.
 
 **Local water detection (osmium):** The backend reads pre-filtered files in `data/water/`, clips each file by the requested bounding box with `osmium extract`, exports geometries via `osmium export -f jsonseq`, and paints those polygons as water. If local files are missing or osmium fails, the map still renders elevation (and oceans from null/negative elevation cells), but inland water overlays may be missing.
+
+**Grid resolution:** Ranges from 8 to 512 points per side. Higher resolution = finer detail but significantly longer processing time due to elevation API rate limiting.
 
 ## Offline water extraction (osmium)
 

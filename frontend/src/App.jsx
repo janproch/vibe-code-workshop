@@ -6,7 +6,7 @@ export default function App() {
   const [heightMapUrl, setHeightMapUrl] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [resolution, setResolution] = useState(32)
+  const [resolution, setResolution] = useState(512)
   const [selectMode, setSelectMode] = useState(false)
 
   const handleBoundsSelected = useCallback(async (bounds) => {
@@ -45,7 +45,7 @@ export default function App() {
           <input
             type="number"
             min="8"
-            max="128"
+            max="512"
             value={resolution}
             onChange={(e) => setResolution(Number(e.target.value))}
           />

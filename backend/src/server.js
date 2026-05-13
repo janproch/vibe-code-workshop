@@ -9,7 +9,7 @@ app.use(cors())
 app.use(express.json())
 
 app.post('/elevation', async (req, res) => {
-  const { north, south, east, west, resolution = 32 } = req.body
+  const { north, south, east, west, resolution = 512 } = req.body
 
   // Validate bounding box (WGS-84 decimal degrees)
   if (
@@ -22,8 +22,8 @@ app.post('/elevation', async (req, res) => {
     return res.status(400).json({ error: 'Invalid bounding box' })
   }
 
-  // Clamp resolution: 2–128 (128×128 = 1 024 pts ≈ 11 OpenTopoData requests)
-  const clampedRes = Math.min(Math.max(Math.round(resolution), 2), 128)
+  // Clamp resolution: 2–512 (512×512 = 262 144 pts ≈ 2621 OpenTopoData requests)
+  const clampedRes = Math.min(Math.max(Math.round(resolution), 2), 512)
 
   try {
     const png = await generateHeightMap({ north, south, east, west }, clampedRes)
