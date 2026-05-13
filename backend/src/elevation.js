@@ -301,18 +301,28 @@ export async function generateHeightMap(bounds, resolution) {
   ])
 
   console.log(`[heightmap] Data fetch complete: elevations=${elevations.length}, waterAreas=${waterAreas.length}`)
+  console.log(`[heightmap] Entering normalization/render pipeline with ${points.length} point(s)`)
 
   // Compute min/max only over land cells for proper colour scaling
+  const statsStart = Date.now()
   const landElevs = elevations.filter(e => e !== null && e >= 0)
   const min = landElevs.length ? Math.min(...landElevs) : 0
   const max = landElevs.length ? Math.max(...landElevs) : 1
   const range = max - min || 1
-  console.log(`[heightmap] Land elevation stats: samples=${landElevs.length}, min=${min}, max=${max}`)
+  console.log(`[heightmap] Land elevation stats: samples=${landElevs.length}, min=${min}, max=${max} (${Date.now() - statsStart}ms)`)
 
   const png = new PNG({ width: resolution, height: resolution })
   png.data = Buffer.alloc(resolution * resolution * 4)
+  const renderStart = Date.now()
+  const progressStride = Math.max(1, Math.floor(points.length / 10))
+  console.log(`[heightmap] Rendering started: ${points.length} pixel(s), progress interval=${progressStride}`)
 
   for (let i = 0; i < points.length; i++) {
+    if (i > 0 && i % progressStride === 0) {
+      const pct = Math.floor((i / points.length) * 100)
+      console.log(`[heightmap] Rendering progress: ${pct}% (${i}/${points.length}) elapsed=${Date.now() - renderStart}ms`)
+    }
+
     const elev = elevations[i]
     let r, g, b
 
@@ -330,7 +340,11 @@ export async function generateHeightMap(bounds, resolution) {
     png.data[idx + 3] = 255
   }
 
+  console.log(`[heightmap] Rendering complete in ${Date.now() - renderStart}ms`)
+
+  const encodeStart = Date.now()
   const result = PNG.sync.write(png)
+  console.log(`[heightmap] PNG encode complete in ${Date.now() - encodeStart}ms`)
   console.log(`[heightmap] PNG generated (${result.length} bytes) in ${Date.now() - startedAt}ms`)
   return result
 }

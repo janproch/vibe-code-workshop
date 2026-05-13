@@ -1,0 +1,18 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../opentopodata"
+		}
+	],
+	"settings": {
+		"chat.tools.terminal.enableAutoApprove": true,
+		"chat.tools.terminal.autoApprove": {
+			"curl": true,
+			"ls": true,
+			"https://download.geofabrik.de/**": true
+		}
+	}
+}
