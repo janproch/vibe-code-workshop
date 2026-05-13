@@ -6,7 +6,7 @@ A workshop project that lets you draw a rectangle on an OpenStreetMap view and d
 
 1. Open the app in your browser and set your desired grid resolution (8–128 points per side).
 2. Click **Select area** and draw a rectangle on the map to define any geographic area.
-3. The app fetches elevation samples from [OpenTopoData](https://api.opentopodata.org) (SRTM 30 m) and detects water bodies using [Overpass API](https://overpass-api.de).
+3. The app fetches elevation samples from [OpenTopoData](https://api.opentopodata.org) (SRTM 30 m) and detects water bodies from local OpenStreetMap water extracts in `data/water/`.
 4. A topographic PNG map is generated with color-coded elevation zones (green = lowlands, brown = uplands, white = peaks) and blue water overlays.
 5. View the result in the right panel and export it as a PNG.
 
@@ -19,7 +19,7 @@ A workshop project that lets you draw a rectangle on an OpenStreetMap view and d
 | Map tiles | [OpenStreetMap](https://www.openstreetmap.org) (no API key needed) |
 | Backend | [Node.js](https://nodejs.org) + [Express](https://expressjs.com) |
 | Elevation data | [OpenTopoData SRTM 30 m](https://www.opentopodata.org/datasets/srtm30m/) (no API key needed) |
-| Water detection | [Overpass API](https://overpass-api.de) / OpenStreetMap (no API key needed) |
+| Water detection | Local OpenStreetMap extracts + [osmium-tool](https://osmcode.org/osmium-tool/) |
 | PNG generation | [pngjs](https://github.com/pngjs/pngjs) |
 
 No API keys or accounts are required.
@@ -28,7 +28,7 @@ No API keys or accounts are required.
 
 ### Prerequisites
 - [Node.js](https://nodejs.org) 18 or later
-- [osmium-tool](https://osmcode.org/osmium-tool/) for offline water extraction from local `.osm.pbf` files
+- [osmium-tool](https://osmcode.org/osmium-tool/) (required for water extraction and backend water rendering)
 
 ### 1 — Install dependencies
 
@@ -53,6 +53,12 @@ npm run dev   # starts on http://localhost:5173
 
 Open **http://localhost:5173** in your browser, set a grid resolution (default **32 × 32**), click **Select area**, and draw a rectangle on the map. The topographic height map appears in the right panel with a legend showing elevation zones.
 
+Before rendering inland water overlays, generate local water extracts:
+
+```bash
+./scripts/extract-water-data.sh
+```
+
 > **Grid resolution:** Ranges from 8 to 128 points per side. Resolution 32 × 32 uses ~11 API requests (~12 s). Resolution 128 × 128 takes ~3 minutes due to OpenTopoData's 1 req/s rate limit on the free tier.
 
 ## Project structure
@@ -63,7 +69,9 @@ Open **http://localhost:5173** in your browser, set a grid resolution (default *
 │   ├── package.json
 │   └── src/
 │       ├── server.js      # Express server, POST /elevation endpoint
-│       └── elevation.js   # OpenTopoData fetching, grid sampling, PNG generation
+│       └── elevation.js   # OpenTopoData + local osmium water overlay rendering
+├── scripts/
+│   └── extract-water-data.sh  # Builds water-only extracts in data/water from data/source
 ├── frontend/
 │   ├── index.html
 │   ├── vite.config.js     # dev proxy: /api → localhost:3001
@@ -112,7 +120,7 @@ Color intensity and hue follow a topographic scale relative to the min/max eleva
 
 **OpenTopoData (elevation):** Accepts up to 100 locations per request. For a 128 × 128 grid the backend splits the request into multiple batches automatically.
 
-**Overpass API (water detection):** Used to fetch water body geometries (ways tagged as water, reservoirs, basins, wetlands). Requests may timeout in areas with very dense water features. If the water fetch fails, the map still renders elevation data without the water overlay.
+**Local water detection (osmium):** The backend reads pre-filtered files in `data/water/`, clips each file by the requested bounding box with `osmium extract`, exports geometries via `osmium export -f jsonseq`, and paints those polygons as water. If local files are missing or osmium fails, the map still renders elevation (and oceans from null/negative elevation cells), but inland water overlays may be missing.
 
 ## Offline water extraction (osmium)
 

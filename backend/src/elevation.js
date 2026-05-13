@@ -1,13 +1,20 @@
 import { PNG } from 'pngjs'
+import os from 'node:os'
+import path from 'node:path'
+import { promisify } from 'node:util'
+import { execFile } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
 
 const OPENTOPODATA_URL = 'https://api.opentopodata.org/v1/srtm30m'
-const OVERPASS_URL = 'https://overpass.kumi.systems/api/interpreter'
-const OVERPASS_HEADERS = {
-  'Accept': 'application/json',
-  'User-Agent': 'height-map-extractor/1.0 (workshop demo project)',
-}
 const BATCH_SIZE = 100     // OpenTopoData max locations per request
 const RATE_LIMIT_MS = 1100 // public API allows ~1 req/s
+const execFileAsync = promisify(execFile)
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const ROOT_DIR = path.resolve(__dirname, '../..')
+const WATER_DIR = path.join(ROOT_DIR, 'data', 'water')
 
 // ── Grid ─────────────────────────────────────────────────────────────────────
 
@@ -59,35 +66,103 @@ async function fetchElevations(points) {
   return elevations
 }
 
-// ── Water polygons (Overpass API / OpenStreetMap) ─────────────────────────────
+// ── Water polygons (local osmium + prefiltered OSM water files) ───────────────
 
-async function fetchWaterPolygons(bounds) {
-  const { north, south, east, west } = bounds
-  const bbox = `${south},${west},${north},${east}`
-  // "out geom" returns node coordinates inline — much cheaper than out body;>;out skel qt;
-  const query =
-    `[out:json][timeout:20];` +
-    `(` +
-    `way["natural"="water"](${bbox});` +
-    `way["landuse"="reservoir"](${bbox});` +
-    `way["landuse"="basin"](${bbox});` +
-    `way["natural"="wetland"](${bbox});` +
-    `);` +
-    `out geom;`
+function coordsToRing(coords) {
+  if (!Array.isArray(coords) || coords.length < 3) return null
+  return coords.map(([lng, lat]) => ({ lat, lng }))
+}
 
-  const url = `${OVERPASS_URL}?data=${encodeURIComponent(query)}`
-  const res = await fetch(url, { headers: OVERPASS_HEADERS })
-  if (!res.ok) throw new Error(`Overpass API HTTP ${res.status}: ${await res.text().then(t => t.slice(0, 200))}`)
-  const data = await res.json()
+function parseJsonSeqWaterAreas(jsonseq) {
+  const areas = []
+  const records = jsonseq.split('\n')
 
-  // With "out geom" each way already carries its geometry array
-  const polygons = []
-  for (const el of data.elements) {
-    if (el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 3) {
-      polygons.push(el.geometry.map(n => ({ lat: n.lat, lng: n.lon })))
+  for (const rawLine of records) {
+    const line = rawLine.replace(/^\u001e/, '').trim()
+    if (!line) continue
+
+    let feature
+    try {
+      feature = JSON.parse(line)
+    } catch {
+      continue
+    }
+
+    const geometry = feature?.geometry
+    if (!geometry || !geometry.type || !Array.isArray(geometry.coordinates)) continue
+
+    if (geometry.type === 'Polygon') {
+      const [outerRaw, ...holeRaws] = geometry.coordinates
+      const outer = coordsToRing(outerRaw)
+      if (!outer) continue
+      const holes = holeRaws.map(coordsToRing).filter(Boolean)
+      areas.push({ outer, holes })
+      continue
+    }
+
+    if (geometry.type === 'MultiPolygon') {
+      for (const poly of geometry.coordinates) {
+        if (!Array.isArray(poly) || poly.length === 0) continue
+        const [outerRaw, ...holeRaws] = poly
+        const outer = coordsToRing(outerRaw)
+        if (!outer) continue
+        const holes = holeRaws.map(coordsToRing).filter(Boolean)
+        areas.push({ outer, holes })
+      }
     }
   }
-  return polygons
+
+  return areas
+}
+
+async function getWaterSources() {
+  try {
+    const entries = await readdir(WATER_DIR, { withFileTypes: true })
+    return entries
+      .filter(e => e.isFile() && e.name.endsWith('.osm.pbf'))
+      .map(e => path.join(WATER_DIR, e.name))
+  } catch (err) {
+    if (err?.code === 'ENOENT') return []
+    throw err
+  }
+}
+
+async function fetchWaterPolygons(bounds) {
+  const sources = await getWaterSources()
+  if (sources.length === 0) return []
+
+  const bbox = `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'water-bbox-'))
+
+  try {
+    const allAreas = []
+
+    for (let i = 0; i < sources.length; i++) {
+      const sourceFile = sources[i]
+      const clippedFile = path.join(tmpDir, `clip-${i}.osm.pbf`)
+
+      await execFileAsync('osmium', [
+        'extract',
+        '-b', bbox,
+        sourceFile,
+        '-o', clippedFile,
+        '--overwrite',
+      ])
+
+      const { stdout } = await execFileAsync('osmium', [
+        'export',
+        clippedFile,
+        '-f', 'jsonseq',
+        '--geometry-types=polygon,multipolygon',
+      ], { maxBuffer: 1024 * 1024 * 64 })
+
+      allAreas.push(...parseJsonSeqWaterAreas(stdout))
+    }
+
+    return allAreas
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true })
+  }
 }
 
 // Ray-casting point-in-polygon (works for any simple polygon in lat/lng space)
@@ -105,12 +180,14 @@ function pointInPolygon({ lat, lng }, polygon) {
   return inside
 }
 
-function isWater(point, elev, waterPolygons) {
+function isWater(point, elev, waterAreas) {
   // null elevation = SRTM has no data → ocean cell
   // negative elevation = below sea level (sea, Dead Sea, etc.)
   if (elev === null || elev < 0) return true
-  // Check inland water bodies from OpenStreetMap
-  return waterPolygons.some(poly => pointInPolygon(point, poly))
+  // Check inland water bodies from prefiltered local OSM data
+  return waterAreas.some(area => (
+    pointInPolygon(point, area.outer) && !area.holes.some(hole => pointInPolygon(point, hole))
+  ))
 }
 
 // ── Topographic color scheme ──────────────────────────────────────────────────
@@ -160,12 +237,12 @@ function elevationToColor(norm) {
 export async function generateHeightMap(bounds, resolution) {
   const points = buildGrid(bounds, resolution)
 
-  // Fetch elevation data and water polygons in parallel.
-  // Water fetch is best-effort — a timeout returns an empty list rather than failing the whole request.
-  const [elevations, waterPolygons] = await Promise.all([
+  // Fetch elevation data and local water polygons in parallel.
+  // Water load is best-effort: if osmium/files are unavailable, we still render elevation.
+  const [elevations, waterAreas] = await Promise.all([
     fetchElevations(points),
     fetchWaterPolygons(bounds).catch(err => {
-      console.warn('Water fetch failed (elevation map will have no water overlay):', err.message)
+      console.warn('Local water load failed (elevation map will have no inland water overlay):', err.message)
       return []
     }),
   ])
@@ -183,7 +260,7 @@ export async function generateHeightMap(bounds, resolution) {
     const elev = elevations[i]
     let r, g, b
 
-    if (isWater(points[i], elev, waterPolygons)) {
+    if (isWater(points[i], elev, waterAreas)) {
       ;[r, g, b] = WATER_COLOR
     } else {
       const norm = (elev - min) / range
