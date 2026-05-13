@@ -9,6 +9,8 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        // 512x512 height maps can run for several minutes in dev.
+        proxyTimeout: 15 * 60 * 1000,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },

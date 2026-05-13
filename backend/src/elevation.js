@@ -27,6 +27,14 @@ const REQUEST_CONCURRENCY = Math.max(
   1,
   Number.parseInt(process.env.OPENTOPODATA_CONCURRENCY ?? (isLocalOpenTopoData ? '6' : '1'), 10),
 )
+const REQUEST_TIMEOUT_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.OPENTOPODATA_REQUEST_TIMEOUT_MS ?? '30000', 10),
+)
+const REQUEST_RETRIES = Math.max(
+  0,
+  Number.parseInt(process.env.OPENTOPODATA_RETRIES ?? '2', 10),
+)
 const execFileAsync = promisify(execFile)
 
 const __filename = fileURLToPath(import.meta.url)
@@ -66,14 +74,49 @@ function chunk(arr, size) {
 
 // ── Elevation (OpenTopoData) ──────────────────────────────────────────────────
 
-async function fetchBatch(points) {
+function timeoutSignal(ms) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), ms)
+  return { signal: controller.signal, clear: () => clearTimeout(timeout) }
+}
+
+async function fetchBatch(points, batchNo, totalBatches) {
   const locations = points.map(p => `${p.lat},${p.lng}`).join('|')
-  const res = await fetch(`${OPENTOPODATA_URL}?locations=${locations}`)
-  if (!res.ok) throw new Error(`OpenTopoData HTTP ${res.status}`)
-  const data = await res.json()
-  if (data.status !== 'OK') throw new Error(`OpenTopoData status: ${data.status}`)
-  // elevation can be null for ocean cells where SRTM has no coverage
-  return data.results.map(r => r.elevation)
+  const url = `${OPENTOPODATA_URL}?locations=${locations}`
+  let lastError
+
+  for (let attempt = 0; attempt <= REQUEST_RETRIES; attempt++) {
+    const attemptNo = attempt + 1
+    const { signal, clear } = timeoutSignal(REQUEST_TIMEOUT_MS)
+
+    try {
+      const res = await fetch(url, { signal })
+      if (!res.ok) throw new Error(`OpenTopoData HTTP ${res.status}`)
+      const data = await res.json()
+      if (data.status !== 'OK') throw new Error(`OpenTopoData status: ${data.status}`)
+      // elevation can be null for ocean cells where SRTM has no coverage
+      return data.results.map(r => r.elevation)
+    } catch (err) {
+      lastError = err
+      const reason = err?.name === 'AbortError'
+        ? `timeout after ${REQUEST_TIMEOUT_MS}ms`
+        : (err?.message || String(err))
+      console.warn(
+        `[elev] Batch ${batchNo}/${totalBatches} attempt ${attemptNo}/${REQUEST_RETRIES + 1} failed: ${reason}`,
+      )
+
+      if (attempt < REQUEST_RETRIES) {
+        const backoffMs = Math.min(1000 * (attempt + 1), 5000)
+        await sleep(backoffMs)
+      }
+    } finally {
+      clear()
+    }
+  }
+
+  throw new Error(
+    `[elev] Batch ${batchNo}/${totalBatches} failed after ${REQUEST_RETRIES + 1} attempt(s): ${lastError?.message || lastError}`,
+  )
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
@@ -81,15 +124,37 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 async function fetchElevations(points) {
   const batches = chunk(points, BATCH_SIZE)
   const elevations = []
+  const totalGroups = Math.ceil(batches.length / REQUEST_CONCURRENCY)
+  const startedAt = Date.now()
+
+  console.log(
+    `[elev] Starting elevation fetch: points=${points.length}, batches=${batches.length}, concurrency=${REQUEST_CONCURRENCY}, groups=${totalGroups}, timeout=${REQUEST_TIMEOUT_MS}ms, retries=${REQUEST_RETRIES}`,
+  )
 
   for (let i = 0; i < batches.length; i += REQUEST_CONCURRENCY) {
     if (i > 0 && RATE_LIMIT_MS > 0) await sleep(RATE_LIMIT_MS)
 
     const group = batches.slice(i, i + REQUEST_CONCURRENCY)
-    const results = await Promise.all(group.map(fetchBatch))
+    const groupNo = Math.floor(i / REQUEST_CONCURRENCY) + 1
+    const results = await Promise.all(
+      group.map((batchPoints, offset) => fetchBatch(batchPoints, i + offset + 1, batches.length)),
+    )
     for (const values of results) elevations.push(...values)
+
+    const shouldLogProgress =
+      groupNo === 1 ||
+      groupNo === totalGroups ||
+      groupNo % Math.max(1, Math.floor(totalGroups / 10)) === 0
+
+    if (shouldLogProgress) {
+      const pct = Math.floor((groupNo / totalGroups) * 100)
+      console.log(
+        `[elev] Progress ${pct}% (${groupNo}/${totalGroups} groups, ${elevations.length}/${points.length} samples) elapsed=${Date.now() - startedAt}ms`,
+      )
+    }
   }
 
+  console.log(`[elev] Elevation fetch complete in ${Date.now() - startedAt}ms`)
   return elevations
 }
 

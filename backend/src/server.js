@@ -4,6 +4,10 @@ import { generateHeightMap } from './elevation.js'
 
 const app = express()
 const PORT = process.env.PORT || 3001
+const SERVER_REQUEST_TIMEOUT_MS = Math.max(
+  60000,
+  Number.parseInt(process.env.SERVER_REQUEST_TIMEOUT_MS ?? '900000', 10),
+)
 
 app.use(cors())
 app.use(express.json())
@@ -35,6 +39,11 @@ app.post('/elevation', async (req, res) => {
   }
 })
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`)
+  console.log(`[server] Request timeout set to ${SERVER_REQUEST_TIMEOUT_MS}ms`)
 })
+
+// Large high-resolution requests can run for several minutes.
+server.requestTimeout = SERVER_REQUEST_TIMEOUT_MS
+server.headersTimeout = SERVER_REQUEST_TIMEOUT_MS + 5000

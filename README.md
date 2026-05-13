@@ -144,12 +144,17 @@ The backend supports these environment variables:
 | `OPENTOPODATA_URL` | `http://localhost:5000/v1/eudem25m` | Full OpenTopoData endpoint including dataset path (`/v1/<dataset>`) |
 | `OPENTOPODATA_CONCURRENCY` | `6` on localhost, otherwise `1` | Number of elevation batch requests sent in parallel |
 | `OPENTOPODATA_RATE_LIMIT_MS` | `0` on localhost, otherwise `1100` | Delay between request groups (milliseconds) |
+| `OPENTOPODATA_REQUEST_TIMEOUT_MS` | `30000` | Per-batch OpenTopoData request timeout (milliseconds) |
+| `OPENTOPODATA_RETRIES` | `2` | Retry count per failed/timed-out OpenTopoData batch |
+| `SERVER_REQUEST_TIMEOUT_MS` | `900000` | Backend HTTP request timeout (milliseconds) for long renders |
 
 **OpenTopoData (elevation):** Accepts up to 100 locations per request. For a 512 × 512 grid (~262k elevation points) the backend splits requests into ~2,621 batches. With a local instance, requests are parallelized for much faster processing. If you switch to a public endpoint, use conservative concurrency/rate-limit settings.
 
 **Local water detection (osmium):** The backend reads pre-filtered files in `data/water/`, clips each file by the requested bounding box with `osmium extract`, exports geometries via `osmium export -f jsonseq`, and paints those polygons as water. If local files are missing or osmium fails, the map still renders elevation (and oceans from null/negative elevation cells), but inland water overlays may be missing.
 
 **Grid resolution:** Ranges from 8 to 512 points per side. Higher resolution = finer detail but significantly longer processing time due to elevation API rate limiting.
+
+When running through the Vite dev server (`http://localhost:5173`), the `/api` proxy timeout is set to 15 minutes in `frontend/vite.config.js` to avoid premature 500 responses during high-resolution renders.
 
 ## Offline water extraction (osmium)
 
