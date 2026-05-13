@@ -16,6 +16,11 @@ const __dirname = path.dirname(__filename)
 const ROOT_DIR = path.resolve(__dirname, '../..')
 const WATER_DIR = path.join(ROOT_DIR, 'data', 'water')
 
+function formatBounds(bounds) {
+  const { north, south, east, west } = bounds
+  return `N:${north.toFixed(5)} S:${south.toFixed(5)} E:${east.toFixed(5)} W:${west.toFixed(5)}`
+}
+
 // ── Grid ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -129,10 +134,14 @@ async function getWaterSources() {
 
 async function fetchWaterPolygons(bounds) {
   const sources = await getWaterSources()
-  if (sources.length === 0) return []
+  if (sources.length === 0) {
+    console.warn('[water] No water source files found in data/water; inland overlays will be skipped')
+    return []
+  }
 
   const bbox = `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'water-bbox-'))
+  console.log(`[water] Starting osmium water load for bbox ${bbox} from ${sources.length} file(s)`) 
 
   try {
     const allAreas = []
@@ -140,6 +149,10 @@ async function fetchWaterPolygons(bounds) {
     for (let i = 0; i < sources.length; i++) {
       const sourceFile = sources[i]
       const clippedFile = path.join(tmpDir, `clip-${i}.osm.pbf`)
+      const sourceName = path.basename(sourceFile)
+      const extractStart = Date.now()
+
+      console.log(`[water] [${i + 1}/${sources.length}] osmium extract start: ${sourceName}`)
 
       await execFileAsync('osmium', [
         'extract',
@@ -149,6 +162,11 @@ async function fetchWaterPolygons(bounds) {
         '--overwrite',
       ])
 
+      console.log(`[water] [${i + 1}/${sources.length}] osmium extract done: ${sourceName} (${Date.now() - extractStart}ms)`)
+
+      const exportStart = Date.now()
+      console.log(`[water] [${i + 1}/${sources.length}] osmium export start: ${sourceName}`)
+
       const { stdout } = await execFileAsync('osmium', [
         'export',
         clippedFile,
@@ -156,12 +174,21 @@ async function fetchWaterPolygons(bounds) {
         '--geometry-types=polygon,multipolygon',
       ], { maxBuffer: 1024 * 1024 * 64 })
 
-      allAreas.push(...parseJsonSeqWaterAreas(stdout))
+      console.log(`[water] [${i + 1}/${sources.length}] osmium export done: ${sourceName} (${Date.now() - exportStart}ms)`)
+
+      const parsed = parseJsonSeqWaterAreas(stdout)
+      allAreas.push(...parsed)
+      console.log(`[water] [${i + 1}/${sources.length}] parsed ${parsed.length} polygon area(s) from ${sourceName}`)
     }
 
+    console.log(`[water] Completed osmium water load: ${allAreas.length} total polygon area(s)`)
     return allAreas
+  } catch (err) {
+    console.error('[water] Osmium processing failed:', err.message)
+    throw err
   } finally {
     await rm(tmpDir, { recursive: true, force: true })
+    console.log('[water] Cleaned up temporary osmium directory')
   }
 }
 
@@ -235,7 +262,11 @@ function elevationToColor(norm) {
  * @returns {Promise<Buffer>} PNG image buffer
  */
 export async function generateHeightMap(bounds, resolution) {
+  const startedAt = Date.now()
+  console.log(`[heightmap] Request started (${formatBounds(bounds)}), resolution=${resolution}`)
+
   const points = buildGrid(bounds, resolution)
+  console.log(`[heightmap] Built grid with ${points.length} point(s)`)
 
   // Fetch elevation data and local water polygons in parallel.
   // Water load is best-effort: if osmium/files are unavailable, we still render elevation.
@@ -247,11 +278,14 @@ export async function generateHeightMap(bounds, resolution) {
     }),
   ])
 
+  console.log(`[heightmap] Data fetch complete: elevations=${elevations.length}, waterAreas=${waterAreas.length}`)
+
   // Compute min/max only over land cells for proper colour scaling
   const landElevs = elevations.filter(e => e !== null && e >= 0)
   const min = landElevs.length ? Math.min(...landElevs) : 0
   const max = landElevs.length ? Math.max(...landElevs) : 1
   const range = max - min || 1
+  console.log(`[heightmap] Land elevation stats: samples=${landElevs.length}, min=${min}, max=${max}`)
 
   const png = new PNG({ width: resolution, height: resolution })
   png.data = Buffer.alloc(resolution * resolution * 4)
@@ -274,5 +308,7 @@ export async function generateHeightMap(bounds, resolution) {
     png.data[idx + 3] = 255
   }
 
-  return PNG.sync.write(png)
+  const result = PNG.sync.write(png)
+  console.log(`[heightmap] PNG generated (${result.length} bytes) in ${Date.now() - startedAt}ms`)
+  return result
 }
