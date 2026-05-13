@@ -55,6 +55,8 @@ function timeoutSignal(ms) {
   return { signal: controller.signal, clear: () => clearTimeout(timeout) }
 }
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
 function flattenElevationGrid(grid, width, height) {
   if (!Array.isArray(grid) || grid.length !== height) {
     throw new Error(`OpenTopoData grid height mismatch: expected ${height}, got ${Array.isArray(grid) ? grid.length : 'non-array'}`)
