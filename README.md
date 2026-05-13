@@ -4,11 +4,11 @@ A workshop project that lets you draw a rectangle on an OpenStreetMap view and d
 
 ## How it works
 
-1. Open the app in your browser.
-2. Draw a rectangle on the map to select any geographic area.
-3. The app fetches elevation samples from [OpenTopoData](https://api.opentopodata.org) (SRTM 30 m).
-4. A grayscale height map is generated (pixel brightness = relative elevation) and displayed.
-5. Export the result as a PNG.
+1. Open the app in your browser and set your desired grid resolution (8–128 points per side).
+2. Click **Select area** and draw a rectangle on the map to define any geographic area.
+3. The app fetches elevation samples from [OpenTopoData](https://api.opentopodata.org) (SRTM 30 m) and detects water bodies using [Overpass API](https://overpass-api.de).
+4. A topographic PNG map is generated with color-coded elevation zones (green = lowlands, brown = uplands, white = peaks) and blue water overlays.
+5. View the result in the right panel and export it as a PNG.
 
 ## Tech stack
 
@@ -19,6 +19,7 @@ A workshop project that lets you draw a rectangle on an OpenStreetMap view and d
 | Map tiles | [OpenStreetMap](https://www.openstreetmap.org) (no API key needed) |
 | Backend | [Node.js](https://nodejs.org) + [Express](https://expressjs.com) |
 | Elevation data | [OpenTopoData SRTM 30 m](https://www.opentopodata.org/datasets/srtm30m/) (no API key needed) |
+| Water detection | [Overpass API](https://overpass-api.de) / OpenStreetMap (no API key needed) |
 | PNG generation | [pngjs](https://github.com/pngjs/pngjs) |
 
 No API keys or accounts are required.
@@ -49,10 +50,9 @@ cd frontend
 npm run dev   # starts on http://localhost:5173
 ```
 
-Open **http://localhost:5173** in your browser, draw a rectangle on the map, and the height map appears in the right panel.
+Open **http://localhost:5173** in your browser, set a grid resolution (default **32 × 32**), click **Select area**, and draw a rectangle on the map. The topographic height map appears in the right panel with a legend showing elevation zones.
 
-> **Note on grid resolution:** The default resolution is 32 × 32 (≈ 11 API requests, ~12 s).
-> Raising it to 128 × 128 takes ~3 minutes due to OpenTopoData's 1 req/s rate limit on the free tier.
+> **Grid resolution:** Ranges from 8 to 128 points per side. Resolution 32 × 32 uses ~11 API requests (~12 s). Resolution 128 × 128 takes ~3 minutes due to OpenTopoData's 1 req/s rate limit on the free tier.
 
 ## Project structure
 
@@ -100,11 +100,18 @@ Request body:
 | `north`, `south`, `east`, `west` | `number` | Bounding box in decimal degrees (WGS-84) |
 | `resolution` | `number` | Grid side length (default **32**). The backend clamps values to **2–128**. |
 
-Response: `image/png` where pixel brightness encodes elevation (0 = lowest point, 255 = highest point in the selected area).
+Response: `image/png` where pixel colors encode elevation and water:
+- **Blue**: Water (oceans, lakes, reservoirs, wetlands)
+- **Green to brown gradient**: Land (green = lowlands → brown = uplands/mountains)
+- **White**: High peaks / snow zones
 
-## Elevation data limits
+Color intensity and hue follow a topographic scale relative to the min/max elevation in the selected area.
 
-OpenTopoData accepts up to **100 locations per request**. For a 128 × 128 grid the backend splits the request into multiple batches automatically.
+## API and data limits
+
+**OpenTopoData (elevation):** Accepts up to 100 locations per request. For a 128 × 128 grid the backend splits the request into multiple batches automatically.
+
+**Overpass API (water detection):** Used to fetch water body geometries (ways tagged as water, reservoirs, basins, wetlands). Requests may timeout in areas with very dense water features. If the water fetch fails, the map still renders elevation data without the water overlay.
 
 ## Contributing / Workshop notes
 
