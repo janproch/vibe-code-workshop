@@ -1,8 +1,8 @@
 ---
 description: "Check README.md for outdated information and missing features. Use when you want to audit and update project documentation."
-model: "claude-haiku-4-5 (copilot)"
+model: "Claude Haiku 4.5"
 agent: "agent"
-tools: [edit/editFiles, search/codebase]
+tools: [read/readFile, edit/editFiles, search/codebase]
 ---
 
 Review [README.md](../../README.md) and verify it is accurate and complete.
