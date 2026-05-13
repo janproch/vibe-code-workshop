@@ -1,6 +1,6 @@
 ---
 name: download-osm-data
-description: "Download OSM PBF map data from Geofabrik (download.geofabrik.de). Use when the user says 'download data from <region/country>', 'get OSM data for <place>', 'fetch geofabrik <country>', or similar. Saves the .osm.pbf file into the data/ directory."
+description: "Download OSM PBF map data from Geofabrik (download.geofabrik.de). Use when the user says 'download data from <region/country>', 'get OSM data for <place>', 'fetch geofabrik <country>', or similar. Saves the .osm.pbf file into the data/source/ directory."
 argument-hint: "country or region name (e.g. 'czech republic', 'germany', 'europe/austria')"
 ---
 
@@ -53,12 +53,12 @@ Run the download command in the terminal, saving into `data/`:
 **PowerShell (Windows):**
 ```powershell
 Invoke-WebRequest -Uri "https://download.geofabrik.de/europe/czech-republic-latest.osm.pbf" `
-  -OutFile "data/czech-republic-latest.osm.pbf"
+  -OutFile "data/source/czech-republic-latest.osm.pbf"
 ```
 
 **bash / macOS / Linux:**
 ```bash
-curl -L -o "data/czech-republic-latest.osm.pbf" \
+curl -L -o "data/source/czech-republic-latest.osm.pbf" \
   "https://download.geofabrik.de/europe/czech-republic-latest.osm.pbf"
 ```
 
@@ -70,16 +70,16 @@ After the download completes, confirm the file exists and report its size:
 
 **PowerShell:**
 ```powershell
-Get-Item "data/<slug>-latest.osm.pbf" | Select-Object Name, Length
+Get-Item "data/source/<slug>-latest.osm.pbf" | Select-Object Name, Length
 ```
 
 **bash:**
 ```bash
-ls -lh data/<slug>-latest.osm.pbf
+ls -lh data/source/<slug>-latest.osm.pbf
 ```
 
 ## Notes
 
 - PBF files for whole countries can be several GB — warn the user if the region is large (e.g. Germany ~4 GB, Europe full ~30 GB).
 - Sub-regions (e.g. `europe/germany/bavaria`) are available for large countries. Check `https://download.geofabrik.de/<continent>/<country>.html` for sub-region links if the user specifies a province or state.
-- The `data/` directory is relative to the workspace root.
+- The `data/source/` directory is relative to the workspace root.

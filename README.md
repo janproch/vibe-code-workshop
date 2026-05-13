@@ -28,6 +28,7 @@ No API keys or accounts are required.
 
 ### Prerequisites
 - [Node.js](https://nodejs.org) 18 or later
+- [osmium-tool](https://osmcode.org/osmium-tool/) for offline water extraction from local `.osm.pbf` files
 
 ### 1 — Install dependencies
 
@@ -112,6 +113,22 @@ Color intensity and hue follow a topographic scale relative to the min/max eleva
 **OpenTopoData (elevation):** Accepts up to 100 locations per request. For a 128 × 128 grid the backend splits the request into multiple batches automatically.
 
 **Overpass API (water detection):** Used to fetch water body geometries (ways tagged as water, reservoirs, basins, wetlands). Requests may timeout in areas with very dense water features. If the water fetch fails, the map still renders elevation data without the water overlay.
+
+## Offline water extraction (osmium)
+
+If you have local OSM PBF files in `data/source/`, you can pre-extract water features into `data/water/`:
+
+```bash
+./scripts/extract-water-data.sh
+```
+
+What it does:
+- Reads every `*.osm.pbf` file in `data/source/`
+- Runs `osmium tags-filter` with water-related tags
+- Writes one output file per source into `data/water/` using the suffix `-water.osm.pbf`
+
+Example output:
+- `data/source/austria-latest.osm.pbf` -> `data/water/austria-latest-water.osm.pbf`
 
 ## Contributing / Workshop notes
 
