@@ -56,7 +56,13 @@ Open **http://localhost:5173** in your browser, set a grid resolution (default *
 Before rendering inland water overlays, generate local water extracts:
 
 ```bash
-./scripts/extract-water-data.sh
+./scripts/extract-water-data-all.sh
+```
+
+To extract water data only for one downloaded Geofabrik slug:
+
+```bash
+./scripts/extract-water-data.sh czech-republic
 ```
 
 > **Grid resolution:** Ranges from 8 to 128 points per side. Resolution 32 × 32 uses ~11 API requests (~12 s). Resolution 128 × 128 takes ~3 minutes due to OpenTopoData's 1 req/s rate limit on the free tier.
@@ -71,7 +77,8 @@ Before rendering inland water overlays, generate local water extracts:
 │       ├── server.js      # Express server, POST /elevation endpoint
 │       └── elevation.js   # OpenTopoData + local osmium water overlay rendering
 ├── scripts/
-│   └── extract-water-data.sh  # Builds water-only extracts in data/water from data/source
+│   ├── extract-water-data.sh      # Builds one water extract from data/source/<slug>-latest.osm.pbf
+│   └── extract-water-data-all.sh  # Builds water extracts for all data/source/*.osm.pbf files
 ├── frontend/
 │   ├── index.html
 │   ├── vite.config.js     # dev proxy: /api → localhost:3001
@@ -129,13 +136,24 @@ Color intensity and hue follow a topographic scale relative to the min/max eleva
 If you have local OSM PBF files in `data/source/`, you can pre-extract water features into `data/water/`:
 
 ```bash
-./scripts/extract-water-data.sh
+./scripts/extract-water-data-all.sh
 ```
 
-What it does:
-- Reads every `*.osm.pbf` file in `data/source/`
-- Runs `osmium tags-filter` with water-related tags
-- Writes one output file per source into `data/water/` using the suffix `-water.osm.pbf`
+To extract only one file by Geofabrik slug:
+
+```bash
+./scripts/extract-water-data.sh <slug>
+```
+
+Example:
+
+```bash
+./scripts/extract-water-data.sh czech-republic
+```
+
+What the scripts do:
+- `extract-water-data.sh <slug>` reads `data/source/<slug>-latest.osm.pbf`, runs `osmium tags-filter` with water-related tags, and writes `data/water/<slug>-latest-water.osm.pbf`
+- `extract-water-data-all.sh` reads every `*.osm.pbf` file in `data/source/` and runs the single-file script for each Geofabrik `*-latest.osm.pbf` source file
 
 Example output:
 - `data/source/austria-latest.osm.pbf` -> `data/water/austria-latest-water.osm.pbf`

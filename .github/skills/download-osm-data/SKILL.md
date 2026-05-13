@@ -1,6 +1,6 @@
 ---
 name: download-osm-data
-description: "Download OSM PBF map data from Geofabrik (download.geofabrik.de). Use when the user says 'download data from <region/country>', 'get OSM data for <place>', 'fetch geofabrik <country>', or similar. Saves the .osm.pbf file into the data/source/ directory."
+description: "Download OSM PBF map data from Geofabrik (download.geofabrik.de). Use when the user says 'download data from <region/country>', 'get OSM data for <place>', 'fetch geofabrik <country>', or similar. Saves the .osm.pbf file into the data/source/ directory and then extracts water data into data/water/."
 argument-hint: "country or region name (e.g. 'czech republic', 'germany', 'europe/austria')"
 ---
 
@@ -64,7 +64,7 @@ curl -L -o "data/source/czech-republic-latest.osm.pbf" \
 
 Replace continent and slug with the resolved values.
 
-### Step 4 — Confirm
+### Step 4 — Confirm download
 
 After the download completes, confirm the file exists and report its size:
 
@@ -76,6 +76,37 @@ Get-Item "data/source/<slug>-latest.osm.pbf" | Select-Object Name, Length
 **bash:**
 ```bash
 ls -lh data/source/<slug>-latest.osm.pbf
+```
+
+### Step 5 — Extract water data for the downloaded file
+
+After download, extract water features for the same slug:
+
+**bash / macOS / Linux:**
+```bash
+./scripts/extract-water-data.sh <slug>
+```
+
+Example:
+```bash
+./scripts/extract-water-data.sh czech-republic
+```
+
+**PowerShell (using bash):**
+```powershell
+bash ./scripts/extract-water-data.sh <slug>
+```
+
+### Step 6 — Confirm extracted water file
+
+**PowerShell:**
+```powershell
+Get-Item "data/water/<slug>-latest-water.osm.pbf" | Select-Object Name, Length
+```
+
+**bash:**
+```bash
+ls -lh data/water/<slug>-latest-water.osm.pbf
 ```
 
 ## Notes
